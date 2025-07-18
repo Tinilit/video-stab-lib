@@ -5,6 +5,7 @@
 #include <opencv2/calib3d.hpp>     // estimateAffinePartial2D
 #include <opencv2/video/tracking.hpp> // calcOpticalFlowPyrLK
 #include <opencv2/videostab.hpp>
+#include <fstream>
 
 using namespace cv;
 using namespace cv::videostab;
@@ -22,141 +23,162 @@ void StabilizerWrapper::feedFrame(const cv::Mat& frame)
     processed = false;
 }
 
-void StabilizerWrapper::process()
+bool StabilizerWrapper::processFrame()
 {
-    if (originalFrames.size() < 2)
-        return;
+    std::lock_guard<std::mutex> lock(mutex); // поточна блокування (потрібно додати mutex у клас)
+    std::ofstream log("stab_log.txt", std::ios::app);
 
-    stabilizedFrames.clear();
+    int currentIndex = (int)originalFrames.size() - 1;
+    if (currentIndex < 1)
+        return false; // Потрібно мінімум 2 кадри для стабілізації
 
-    std::vector<double> dx, dy, da;
-    std::vector<double> trajectoryX, trajectoryY, trajectoryA;
+    if (currentIndex <= lastProcessedIndex)
+        return false; 
 
-    std::vector<double> smoothedX, smoothedY, smoothedA;
+    cv::Mat currFrame = originalFrames[currentIndex];
+    if (currFrame.empty())
+        return false;
 
-    Mat prevGray;
-    cvtColor(originalFrames[0], prevGray, COLOR_BGR2GRAY);
+    cv::Mat currGray;
+    cvtColor(currFrame, currGray, COLOR_BGR2GRAY);
 
-    stabilizedFrames.push_back(originalFrames[0]);
-
-    double prevX = 0, prevY = 0, prevA = 0;
-
-    // === 1. Обчислюємо трансформації між кадрами ===
-    for (size_t i = 1; i < originalFrames.size(); ++i)
+    if (!firstFrameProcessed)
     {
-        if (originalFrames[i].empty())
-        {
-            stabilizedFrames.push_back(originalFrames[i]);
-            continue;
-        }
-
-        Mat currGray;
-        cvtColor(originalFrames[i], currGray, COLOR_BGR2GRAY);
-
-        std::vector<Point2f> prevPts, currPts;
-        goodFeaturesToTrack(prevGray, prevPts, 200, 0.01, 30);
-
-        std::vector<uchar> status;
-        std::vector<float> err;
-        calcOpticalFlowPyrLK(prevGray, currGray, prevPts, currPts, status, err);
-
-        std::vector<Point2f> prevInliers, currInliers;
-        for (size_t j = 0; j < status.size(); ++j)
-        {
-            if (status[j])
-            {
-                prevInliers.push_back(prevPts[j]);
-                currInliers.push_back(currPts[j]);
-            }
-        }
-
-        Mat transform;
-        if (prevInliers.size() >= 3 && currInliers.size() >= 3)
-            transform = estimateAffinePartial2D(prevInliers, currInliers);
-        else
-            transform = Mat::eye(2, 3, CV_64F);
-
-        if (transform.empty())
-            transform = Mat::eye(2, 3, CV_64F);
-
-        double dx_i = transform.at<double>(0, 2);
-        double dy_i = transform.at<double>(1, 2);
-        double da_i = atan2(transform.at<double>(1, 0), transform.at<double>(0, 0));
-
-        dx.push_back(dx_i);
-        dy.push_back(dy_i);
-        da.push_back(da_i);
-
-        prevX += dx_i;
-        prevY += dy_i;
-        prevA += da_i;
-
-        trajectoryX.push_back(prevX);
-        trajectoryY.push_back(prevY);
-        trajectoryA.push_back(prevA);
-
         prevGray = currGray.clone();
+        stabilizedFrames.push_back(currFrame.clone());
+        firstFrameProcessed = true;
+        lastProcessedIndex = 0;
     }
 
-    // === 2. Згладжуємо траєкторію через ковзаюче середнє ===
-    const int SMOOTH_RADIUS = 15;
-    for (size_t i = 0; i < trajectoryX.size(); ++i)
+    // 1. Знаходимо ключові точки та оцінюємо трансформацію
+    std::vector<Point2f> prevPts, currPts;
+    goodFeaturesToTrack(prevGray, prevPts, 400, 0.005, 20);
+
+    std::vector<uchar> status;
+    std::vector<float> err;
+    calcOpticalFlowPyrLK(prevGray, currGray, prevPts, currPts, status, err);
+
+    std::vector<Point2f> prevInliers, currInliers;
+    for (size_t j = 0; j < status.size(); ++j)
     {
+        if (status[j])
+        {
+            prevInliers.push_back(prevPts[j]);
+            currInliers.push_back(currPts[j]);
+        }
+    }
+
+    Mat transform;
+    if (prevInliers.size() >= 3 && currInliers.size() >= 3)
+        transform = estimateAffinePartial2D(prevInliers, currInliers);
+    else
+        transform = Mat::eye(2, 3, CV_64F);
+
+    if (transform.empty())
+        transform = Mat::eye(2, 3, CV_64F);
+
+    double dx_i = transform.at<double>(0, 2);
+    double dy_i = transform.at<double>(1, 2);
+    double da_i = atan2(transform.at<double>(1, 0), transform.at<double>(0, 0));
+
+    if (transform.empty())
+        log << "Transform is empty! Using identity.\n";
+    else
+        log << "Transform:\n" << transform << std::endl;
+    log << "dx=" << dx_i << ", dy=" << dy_i << ", da=" << da_i << std::endl;
+
+    dx.push_back(dx_i);
+    dy.push_back(dy_i);
+    da.push_back(da_i);
+
+    // 2. Оновлюємо траєкторію
+    double prevX = (trajectoryX.empty() ? 0 : trajectoryX.back());
+    double prevY = (trajectoryY.empty() ? 0 : trajectoryY.back());
+    double prevA = (trajectoryA.empty() ? 0 : trajectoryA.back());
+
+    double currX = prevX + dx_i;
+    double currY = prevY + dy_i;
+    double currA = prevA + da_i;
+
+    trajectoryX.push_back(currX);
+    trajectoryY.push_back(currY);
+    trajectoryA.push_back(currA);
+
+    // 3. Згладжуємо траєкторію (ковзне середнє)
+    auto smoothAt = [&](int i) -> std::tuple<double, double, double> {
         double sumX = 0, sumY = 0, sumA = 0;
         int count = 0;
-        for (int j = -SMOOTH_RADIUS; j <= SMOOTH_RADIUS; ++j)
+        for (int j = i - SMOOTH_RADIUS; j <= i + SMOOTH_RADIUS; ++j)
         {
-            int idx = i + j;
-            if (idx >= 0 && idx < trajectoryX.size())
+            if (j >= 0 && j < (int)trajectoryX.size())
             {
-                sumX += trajectoryX[idx];
-                sumY += trajectoryY[idx];
-                sumA += trajectoryA[idx];
+                sumX += trajectoryX[j];
+                sumY += trajectoryY[j];
+                sumA += trajectoryA[j];
                 count++;
             }
         }
+        return {sumX / count, sumY / count, sumA / count};
+    };
 
-        smoothedX.push_back(sumX / count);
-        smoothedY.push_back(sumY / count);
-        smoothedA.push_back(sumA / count);
-    }
+    smoothedX.clear();
+    smoothedY.clear();
+    smoothedA.clear();
 
-    // === 3. Обчислюємо компенсуючі трансформації ===
-    prevX = 0;
-    prevY = 0;
-    prevA = 0;
-
-    for (size_t i = 1; i < originalFrames.size(); ++i)
+    for (int i = 0; i < (int)trajectoryX.size(); ++i)
     {
-        double diffX = smoothedX[i - 1] - trajectoryX[i - 1];
-        double diffY = smoothedY[i - 1] - trajectoryY[i - 1];
-        double diffA = smoothedA[i - 1] - trajectoryA[i - 1];
-
-        double dx_i = dx[i - 1] + diffX;
-        double dy_i = dy[i - 1] + diffY;
-        double da_i = da[i - 1] + diffA;
-
-        Mat T = Mat::eye(2, 3, CV_64F);
-        T.at<double>(0, 0) = cos(da_i);
-        T.at<double>(0, 1) = -sin(da_i);
-        T.at<double>(1, 0) = sin(da_i);
-        T.at<double>(1, 1) = cos(da_i);
-        T.at<double>(0, 2) = dx_i;
-        T.at<double>(1, 2) = dy_i;
-
-        Mat stabilized;
-        warpAffine(originalFrames[i], stabilized, T, originalFrames[i].size());
-
-        stabilizedFrames.push_back(stabilized);
+        std::tuple<double, double, double> t = smoothAt(i);
+        double sx = std::get<0>(t);
+        double sy = std::get<1>(t);
+        double sa = std::get<2>(t);
+        smoothedX.push_back(sx);
+        smoothedY.push_back(sy);
+        smoothedA.push_back(sa);
     }
 
+    // 4. Обчислюємо компенсуючі трансформації для останнього кадру
+    int i = (int)trajectoryX.size() - 1;
+    double diffX = smoothedX[i] - trajectoryX[i];
+    double diffY = smoothedY[i] - trajectoryY[i];
+    double diffA = smoothedA[i] - trajectoryA[i];
+
+    double dx_comp = dx[i] + diffX;
+    double dy_comp = dy[i] + diffY;
+    double da_comp = da[i] + diffA;
+
+    Mat T = Mat::eye(2, 3, CV_64F);
+    T.at<double>(0, 0) = cos(da_comp);
+    T.at<double>(0, 1) = -sin(da_comp);
+    T.at<double>(1, 0) = sin(da_comp);
+    T.at<double>(1, 1) = cos(da_comp);
+    T.at<double>(0, 2) = dx_comp;
+    T.at<double>(1, 2) = dy_comp;
+
+    Mat stabilized;
+    warpAffine(currFrame, stabilized, T, currFrame.size());
+
+    stabilizedFrames.push_back(stabilized);
+
+    prevGray = currGray.clone();
+    lastProcessedIndex = currentIndex;
     processed = true;
+
+    return processed;
 }
 
 
 bool StabilizerWrapper::getFrame(int index, cv::Mat& out)
 {
-    if (!processed || index < 0 || index >= stabilizedFrames.size())
+    if (index < 0 || index >= originalFrames.size())
+        return false;
+    // Обробляємо кадри поки немає стабілізованого кадра з потрібним індексом
+    while (index >= stabilizedFrames.size())
+    {
+        if (!processFrame())  // повертає false, якщо нема більше кадрів для обробки
+            break;
+    }
+
+    if (index >= stabilizedFrames.size())
         return false;
 
     out = stabilizedFrames[index].clone();

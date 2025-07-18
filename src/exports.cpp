@@ -17,11 +17,6 @@ __declspec(dllexport) void FeedFrame(void* ptr, unsigned char* data, int width, 
     static_cast<StabilizerWrapper*>(ptr)->feedFrame(input);
 }
 
-__declspec(dllexport) void ProcessStabilization(void* ptr) {
-    if (!ptr) return;
-    static_cast<StabilizerWrapper*>(ptr)->process();
-}
-
 __declspec(dllexport) bool GetFrame(void* ptr, int index, unsigned char* outBuffer, int width, int height, int stride) {
     if (!ptr || !outBuffer) return false;
 
