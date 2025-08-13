@@ -20,8 +20,8 @@ StabilizerWrapper::StabilizerWrapper()
     MotionEstimatorL1Builder builder(params, false);
     auto motionEstimator = builder.build();
 
-    frameSource = Ptr<FrameSourceFromQueue>(new FrameSourceFromQueue(originalFrames, mutex));
-    stabilizer = makePtr<OnePassStabilizer>();
+    frameSource = Ptr<FrameSourceFromQueue>(new FrameSourceFromQueue(originalFrames, mutex, condVar));
+    stabilizer = makePtr<OnePassStabilizer>();  
     stabilizer->setMotionEstimator(motionEstimator);
     stabilizer->setFrameSource(frameSource);
 
@@ -48,14 +48,18 @@ StabilizerWrapper::~StabilizerWrapper()
 
 void StabilizerWrapper::feedFrame(const cv::Mat& frame)
 {
-    std::lock_guard<std::mutex> lock(mutex);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
 
-    const size_t MAX_QUEUE_SIZE = 10;
-    if (originalFrames.size() >= MAX_QUEUE_SIZE) {
-        originalFrames.pop_front();
+        const size_t MAX_QUEUE_SIZE = 10;
+        if (originalFrames.size() >= MAX_QUEUE_SIZE) {
+            originalFrames.pop_front();
+        }
+
+        originalFrames.push_back(frame.clone());
     }
-
-    originalFrames.push_back(frame.clone());
+    
+    condVar.notify_one();
 }
 
 bool StabilizerWrapper::getFrame(int index, cv::Mat& out)
