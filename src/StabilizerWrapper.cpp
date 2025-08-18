@@ -1,5 +1,5 @@
 #include "StabilizerWrapper.h"
-#include "MotionEstimationBuilder.h"
+#include "MotionEstimatorRansacL2Builder.h"
 
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgproc.hpp>
@@ -17,7 +17,7 @@ StabilizerWrapper::StabilizerWrapper()
     params.model = "affine";
     params.local_outlier_rejection = "yes";
 
-    MotionEstimatorL1Builder builder(params, false);
+    MotionEstimatorRansacL2Builder builder(params, false);
     auto motionEstimator = builder.build();
 
     frameSource = Ptr<FrameSourceFromQueue>(new FrameSourceFromQueue(originalFrames, mutex, condVar));
@@ -32,8 +32,40 @@ StabilizerWrapper::StabilizerWrapper()
         Logger::logToFile("ProcessingThread запущено");
         size_t stabilizedCount = 0;
 
-        while (!stopFlag) {
-            cv::Mat stabilized = stabilizer->nextFrame();
+        while (true) {
+            cv::Mat stabilized;
+            try
+            {
+                stabilized = stabilizer->nextFrame();
+                if (stabilized.empty())
+                {
+                    Logger::logToFile("ProcessingThread: stabilized frame is EMPTY");
+                }
+                else
+                {
+                    Logger::logToFile("ProcessingThread: got stabilized frame. Size = " +
+                                    std::to_string(stabilized.cols) + "x" +
+                                    std::to_string(stabilized.rows) +
+                                    ", channels = " + std::to_string(stabilized.channels()) +
+                                    ", type = " + std::to_string(stabilized.type()));
+                }
+            }
+            catch (const cv::Exception& ex)
+            {
+                Logger::logToFile("ProcessingThread: cv::Exception caught in nextFrame(): " + std::string(ex.what()));
+                // при необхідності можна задати stabilized = cv::Mat(); щоб не обривати потік
+                stabilized = cv::Mat();
+            }
+            catch (const std::exception& ex)
+            {
+                Logger::logToFile("ProcessingThread: std::exception caught in nextFrame(): " + std::string(ex.what()));
+                stabilized = cv::Mat();
+            }
+            catch (...)
+            {
+                Logger::logToFile("ProcessingThread: unknown exception caught in nextFrame()");
+                stabilized = cv::Mat();
+            }
 
             if (!stabilized.empty()) {
                     std::lock_guard<std::mutex> lock(mutex);
@@ -67,7 +99,7 @@ StabilizerWrapper::~StabilizerWrapper()
 {
     stopFlag = true;
     if (processingThread.joinable()) {
-        
+
         processingThread.join();
     }
 }
@@ -92,6 +124,7 @@ void StabilizerWrapper::feedFrame(const cv::Mat& frame)
 
 bool StabilizerWrapper::getFrame(int index, cv::Mat& out)
 {
+    Logger::logToFile("getFrame: Зайшли в метод і чекаємо на стабілізований кадр.");
     std::unique_lock<std::mutex> lock(mutex);
 
     // чекаємо, поки з’явиться стабілізований кадр

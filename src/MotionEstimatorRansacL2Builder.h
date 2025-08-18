@@ -3,6 +3,7 @@
 #include <string>
 #include <opencv2/videostab.hpp>
 #include <opencv2/core/utility.hpp>
+#include "MotionModelHelper.h"
 
 using namespace cv;
 using namespace cv::videostab;
@@ -16,9 +17,6 @@ struct Params {
     int nkps = 1000;
 };
 
-// ====== Конвертація рядка в MotionModel ======
-MotionModel motionModel(const std::string &str);
-
 // ====== Інтерфейс ======
 class IMotionEstimatorBuilder {
 public:
@@ -28,10 +26,10 @@ protected:
     IMotionEstimatorBuilder() = default;
 };
 
-// ====== L1 Builder ======
-class MotionEstimatorL1Builder : public IMotionEstimatorBuilder {
+// ====== RansacL2 Builder ======
+class MotionEstimatorRansacL2Builder : public IMotionEstimatorBuilder {
 public:
-    MotionEstimatorL1Builder(const Params& _params, bool use_gpu);
+    MotionEstimatorRansacL2Builder(const Params& _params, bool use_gpu);
     virtual Ptr<ImageMotionEstimatorBase> build() override;
 
 private:
