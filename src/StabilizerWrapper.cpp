@@ -24,7 +24,6 @@ StabilizerWrapper::StabilizerWrapper()
     stabilizer = makePtr<OnePassStabilizer>();  
     stabilizer->setMotionEstimator(motionEstimator);
     stabilizer->setFrameSource(frameSource);
-    
 
     Logger::logToFile("StabilizerWrapper створено, потік обробки стартує");
 
@@ -37,6 +36,7 @@ StabilizerWrapper::StabilizerWrapper()
             try
             {
                 stabilized = stabilizer->nextFrame();
+
                 if (stabilized.empty())
                 {
                     Logger::logToFile("ProcessingThread: stabilized frame is EMPTY");

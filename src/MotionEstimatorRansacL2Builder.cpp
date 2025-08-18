@@ -17,26 +17,19 @@ MotionEstimatorRansacL2Builder::MotionEstimatorRansacL2Builder(const Params& _pa
 
 Ptr<ImageMotionEstimatorBase> MotionEstimatorRansacL2Builder::build()
 {
-    // Створюємо RansacL2 motion estimator
     Ptr<MotionEstimatorRansacL2> est = makePtr<MotionEstimatorRansacL2>(motionModel(params.model));
 
-    // Outlier rejector
-    Ptr<IOutlierRejector> outlierRejector = makePtr<NullOutlierRejector>();
-    if (params.local_outlier_rejection == "yes")
-    {
-        Ptr<TranslationBasedLocalOutlierRejector> tblor = makePtr<TranslationBasedLocalOutlierRejector>();
-        RansacParams ransacParams = tblor->ransacParams();
-        if (params.thresh_mode != "auto")
-            ransacParams.thresh = params.thresh;
-        tblor->setRansacParams(ransacParams);
-        outlierRejector = tblor;
-    }
+    RansacParams ransac = est->ransacParams();
+    ransac.size = params.subset;
+    ransac.thresh = params.thresh;
+    ransac.eps = params.outlier_ratio;
+    est->setRansacParams(ransac);
+    est->setMinInlierRatio(params.min_inlier_ratio);
 
 #if defined(HAVE_OPENCV_CUDAIMGPROC) && defined(HAVE_OPENCV_CUDAOPTFLOW)
     if (gpu)
     {
         Ptr<KeypointBasedMotionEstimatorGpu> kbest = makePtr<KeypointBasedMotionEstimatorGpu>(est);
-        kbest->setOutlierRejector(outlierRejector);
         return kbest;
     }
 #else
@@ -45,6 +38,5 @@ Ptr<ImageMotionEstimatorBase> MotionEstimatorRansacL2Builder::build()
 
     Ptr<KeypointBasedMotionEstimator> kbest = makePtr<KeypointBasedMotionEstimator>(est);
     kbest->setDetector(GFTTDetector::create(params.nkps));
-    kbest->setOutlierRejector(outlierRejector);
     return kbest;
 }

@@ -10,11 +10,16 @@ using namespace cv::videostab;
 
 // ====== Структура параметрів ======
 struct Params {
-    std::string model = "affine";
+    std::string model = "rigid";
     std::string local_outlier_rejection = "no";
     std::string thresh_mode = "auto"; // або "fixed"
     float thresh = 1.0f;
     int nkps = 1000;
+
+    // нові поля для RansacL2
+    int subset = 20;                // кількість точок для оцінки моделі
+    float min_inlier_ratio = 0.5f;  // мінімальний відсоток інлайєрів
+    float outlier_ratio = 0.5f;     // очікуваний відсоток аутлайєрів
 };
 
 // ====== Інтерфейс ======
