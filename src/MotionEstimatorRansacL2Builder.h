@@ -11,14 +11,14 @@ using namespace cv::videostab;
 // ====== Структура параметрів ======
 struct Params {
     std::string model = "affine";           // змінили з rigid на affine
-    std::string local_outlier_rejection = "no";
-    std::string thresh_mode = "auto";
-    float thresh = 3.0f;
+    std::string local_outlier_rejection = "yes";
+    std::string thresh_mode = "fixed";
+    float thresh = 2.5f;
     int nkps = 3000;
 
-    int subset = 3;                         // мінімальна кількість точок для affine
-    float min_inlier_ratio = 0.2f;
-    float outlier_ratio = 0.5f;
+    int subset = 4;                         // мінімальна кількість точок для affine
+    float min_inlier_ratio = 0.25f;
+    float outlier_ratio = 0.3f;
 };
 
 // ====== Інтерфейс ======

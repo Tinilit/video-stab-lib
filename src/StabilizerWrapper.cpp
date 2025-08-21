@@ -25,6 +25,11 @@ StabilizerWrapper::StabilizerWrapper()
     stabilizer->setMotionEstimator(motionEstimator);
     stabilizer->setFrameSource(frameSource);
 
+    stabilizer->setMotionFilter(makePtr<GaussianMotionFilter>(30, 60.0f));
+    stabilizer->setTrimRatio(0.0f);
+    stabilizer->setRadius(10);
+    stabilizer->setBorderMode(cv::BORDER_CONSTANT);
+
     Logger::logToFile("StabilizerWrapper створено, потік обробки стартує");
 
     processingThread = std::thread([this]() {
@@ -36,6 +41,12 @@ StabilizerWrapper::StabilizerWrapper()
             try
             {
                 stabilized = stabilizer->nextFrame();
+
+                cv::Mat diff;
+                cv::absdiff(originalFrames.back(), stabilized, diff);
+                double maxDiff;
+                cv::minMaxLoc(diff, nullptr, &maxDiff);
+                Logger::logToFile("Max difference between last original and stabilized: " + std::to_string(maxDiff));
 
                 if (stabilized.empty())
                 {
