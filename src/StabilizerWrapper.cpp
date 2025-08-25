@@ -25,9 +25,9 @@ StabilizerWrapper::StabilizerWrapper()
     stabilizer->setMotionEstimator(motionEstimator);
     stabilizer->setFrameSource(frameSource);
 
-    stabilizer->setMotionFilter(makePtr<GaussianMotionFilter>(30, 60.0f));
+    stabilizer->setMotionFilter(makePtr<GaussianMotionFilter>(50, 80.0f));
     stabilizer->setTrimRatio(0.0f);
-    stabilizer->setRadius(10);
+    stabilizer->setRadius(15);
     stabilizer->setBorderMode(cv::BORDER_CONSTANT);
 
     Logger::logToFile("StabilizerWrapper створено, потік обробки стартує");

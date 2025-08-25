@@ -42,7 +42,8 @@ public:
     }
 
     void reset() override {
-        
+        std::unique_lock<std::mutex> lock(queueMutex);
+        condVar.wait(lock, [this]() { return !frameQueue.empty(); });
     }
 
 private:
